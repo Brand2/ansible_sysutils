@@ -1,0 +1,51 @@
+# Playbook to create users on an inventory of hosts
+---
+- hosts: all
+  tasks:
+    - name: Create artifacts directory
+      file:
+        path: artifacts
+        state: directory
+        owner: "{{ ansible_user }}"
+      delegate_to: localhost
+- hosts: all
+  vars_prompt:
+    - name: username
+      prompt: What is the username you would like to create?
+      private: no
+    - name: usergroups
+      prompt: What groups would you like to add this user to? Specify a space delimited list. Use this to set permissions appropriately.
+      default: ""
+      private: no
+  tasks:
+    - name: Create a public-private key pair for the user
+      openssh_keypair:
+        path: "artifacts/{{ username }}_id"
+        owner: "{{ ansible_user }}"
+      delegate_to: localhost
+    - name: Create the user on each machine
+      user:
+        append: yes
+        name: "{{ username }}"
+        password: "{{ lookup('password', 'artifacts/{{ username }}.txt chars=ascii_letters,digits') | password_hash('sha512') }}"
+        groups: "{{ usergroups.split(' ') }}" # Split on space
+        shell: /bin/bash
+    - name: Add key to authorized keys on hosts to allow SSH access for this user
+      authorized_key:
+          user: "{{ username }}" # required. The username on the remote host whose authorized_keys file will be modified
+          key: "{{ lookup('file', 'artifacts/{{ username }}_id.pub') }}" # required. The SSH public key(s), as a string or (since 1.9) url (https://github.com/username.keys)
+          state: present # not required. choices: present;absent. Whether the given key (with the given key_options) should or should not be in the file
+    - name: Distribute the user's SSH private key to hosts in expected location
+      copy:
+        dest: "/home/{{ username }}/.ssh/id_rsa"
+        src: "artifacts/{{ username }}_id"
+        owner: "{{ username }}"
+        mode: "0600"
+        backup: yes
+    - name: Distribute the user's SSH private key to hosts in expected location
+      copy:
+        dest: "/home/{{ username }}/.ssh/id_rsa.pub"
+        src: "artifacts/{{ username }}_id.pub"
+        owner: "{{ username }}"
+        mode: "0600"
+        backup: yes
